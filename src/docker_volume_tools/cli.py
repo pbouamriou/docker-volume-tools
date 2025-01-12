@@ -5,6 +5,7 @@ import click
 from tabulate import tabulate
 from .compose import parse_compose_file, VolumeInfo
 from .backup import create_backup, BackupError
+from .restore import restore_backup, validate_backup
 
 @click.group()
 def cli():
@@ -93,27 +94,70 @@ def backup(compose_file, output_dir, compress, volumes):
 
 @cli.command()
 @click.argument('backup_path', type=click.Path(exists=True))
-@click.option('--compose-file', '-c', type=click.Path(exists=True), help='Target docker-compose.yml file')
-@click.option('--force/--no-force', default=False, help='Override existing volumes')
-def restore(backup_path, compose_file, force):
-    """Restore volumes from a backup to a Docker Compose project.
+@click.option('--volumes', '-v', multiple=True,
+              help='Specific volumes to restore (default: all volumes)')
+@click.option('--force/--no-force', default=False,
+              help='Override existing volumes')
+def restore(backup_path, volumes, force):
+    """Restore volumes from a backup.
     
     This command restores previously backed up volumes:
     - Validates backup integrity before restoration
     - Recreates volumes with original configurations
     - Restores data and metadata
     - Maintains service associations
-    - Supports selective restoration (coming soon)
+    - Supports selective restoration
     
     Examples:
-        dvt restore /backups/myproject-20240112.tar.gz
-        dvt restore /backups/myproject-20240112.tar.gz --compose-file docker-compose.yml
-        dvt restore /backups/myproject-20240112.tar.gz --force
+        dvt restore backups/volumes_20240112_123456.tar.gz
+        dvt restore backups/volumes_20240112_123456.tar.gz -v postgres_data
+        dvt restore backups/volumes_20240112_123456.tar.gz --force
     
     Args:
         backup_path: Path to the backup archive
     """
-    click.echo(f"Restoring volumes from {backup_path}... (Not implemented yet)")
+    try:
+        click.echo(f"Validating backup: {backup_path}")
+        metadata = validate_backup(backup_path)
+        
+        # Show volumes that will be restored
+        volumes_to_restore = metadata["volumes"]
+        if volumes:
+            volumes_to_restore = [
+                v for v in volumes_to_restore
+                if v["name"] in volumes
+            ]
+            if len(volumes_to_restore) != len(volumes):
+                missing = set(volumes) - {v["name"] for v in volumes_to_restore}
+                raise ValueError(f"Volumes not found in backup: {', '.join(missing)}")
+        
+        click.echo("\nVolumes to restore:")
+        headers = ["Volume", "Size", "Created"]
+        table_data = [
+            [v["name"], v.get("size", "N/A"), v.get("created", "N/A")]
+            for v in volumes_to_restore
+        ]
+        click.echo(tabulate(table_data, headers=headers, tablefmt="grid"))
+        
+        if not click.confirm("\nProceed with restore?"):
+            click.echo("Restore cancelled")
+            return
+            
+        click.echo("\nRestoring volumes...")
+        restore_backup(
+            backup_path=backup_path,
+            volumes=volumes if volumes else None,
+            force=force
+        )
+        
+        click.echo("\nRestore completed successfully!")
+        
+    except ValueError as e:
+        click.echo(f"Restore error: {str(e)}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Unexpected error: {str(e)}", err=True)
+        raise click.Abort()
 
 @cli.command()
 @click.argument('compose_file', type=click.Path(exists=True))

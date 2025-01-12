@@ -14,6 +14,20 @@ class VolumeInfo:
     source: str
     target: str
     is_external: bool = False
+    compose_name: Optional[str] = None  # Le nom complet avec le préfixe du projet
+
+def get_project_name(compose_path: str) -> str:
+    """Get the project name from the compose file path.
+    
+    By default, Docker Compose uses the directory name as the project name.
+    
+    Args:
+        compose_path: Path to the docker-compose.yml file
+        
+    Returns:
+        Project name
+    """
+    return os.path.basename(os.path.dirname(os.path.abspath(compose_path)))
 
 def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
     """Parse a docker-compose.yml file and extract volume information.
@@ -38,6 +52,7 @@ def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
         return []
         
     volumes: List[VolumeInfo] = []
+    project_name = get_project_name(compose_path)
     
     # Parse top-level volumes section
     named_volumes = compose_data.get('volumes', {})
@@ -57,9 +72,12 @@ def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
                     if source in named_volumes:
                         volume_type = 'named'
                         is_external = bool(named_volumes[source].get('external', False))
+                        # Use explicit name if provided, otherwise use project_name prefix
+                        compose_name = named_volumes[source].get('name', f"{project_name}_{source}")
                     else:
                         volume_type = 'bind'
                         is_external = False
+                        compose_name = source
                         
                     volumes.append(VolumeInfo(
                         name=source,
@@ -67,7 +85,8 @@ def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
                         type=volume_type,
                         source=source,
                         target=target,
-                        is_external=is_external
+                        is_external=is_external,
+                        compose_name=compose_name
                     ))
                     
             # Handle long syntax (dictionary)
@@ -78,13 +97,16 @@ def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
                 
                 if volume_type == 'volume':
                     is_external = bool(named_volumes.get(source, {}).get('external', False))
+                    # Use explicit name if provided, otherwise use project_name prefix
+                    compose_name = named_volumes.get(source, {}).get('name', f"{project_name}_{source}")
                     volumes.append(VolumeInfo(
                         name=source,
                         service=service_name,
                         type='named',
                         source=source,
                         target=target,
-                        is_external=is_external
+                        is_external=is_external,
+                        compose_name=compose_name
                     ))
                 elif volume_type == 'bind':
                     volumes.append(VolumeInfo(
@@ -93,7 +115,8 @@ def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
                         type='bind',
                         source=source,
                         target=target,
-                        is_external=False
+                        is_external=False,
+                        compose_name=source
                     ))
                     
     return volumes 
