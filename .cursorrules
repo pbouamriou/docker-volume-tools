@@ -1,0 +1,43 @@
+# Règles
+
+## 1. Règles de codage Python
+
+- Utiliser le style de codage PEP 8
+- Utiliser des noms de variables et de fonctions en anglais
+- Utiliser des noms de classes en anglais
+- Utiliser des noms de fichiers en anglais
+- Utiliser des noms de dossiers en anglais
+- Utiliser des noms de modules en anglais
+
+## 2. Règles de codage Git
+
+- Utiliser des noms de branches en anglais
+- Utiliser des noms de commits en français
+- Utiliser des noms de tags en anglais
+- Utiliser des noms de fichiers en anglais
+- Utiliser des noms de dossiers en anglais
+- Utiliser des noms de modules en anglais
+
+## 3. Fichier devbook.md
+
+- Ce fichier contient le cahier des charges du projet
+- Ce fichier est en markdown
+- Ce fichier décrit les règles du projet et son état d'avancement
+- Ce fichier est en français
+
+## 4. Règles de chat avec moi
+
+- Utiliser des phrases en français
+- Décrire les actions que tu fais
+- Soit clair et précis
+- Prend en compte que je suis ingénieur et plus précisement architecte logiciel
+- Prend en compte que je suis développeur python
+- Prend en compte que je connais docker
+- Prend en compte que je connais git
+- Prend en compte que je connais linux
+
+## 5. Règles de développement
+
+- Mettre à jour le fichier devbook.md à chaque fois que tu développes une fonctionnalité
+- S'assurer que les tests sont en place et passent
+- S'assurer que le code est propre et bien structuré

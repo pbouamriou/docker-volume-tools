@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  database:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: testpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7
+    volumes:
+      - type: volume
+        source: redis_data
+        target: /data
+      
+  elasticsearch:
+    image: elasticsearch:8.8.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - type: bind
+        source: ./plugins
+        target: /usr/share/elasticsearch/plugins
+        
+  backup-service:
+    image: alpine:latest
+    volumes:
+      - shared_backup:/backup
+      - postgres_data:/postgres:ro
+      - redis_data:/redis:ro
+      - es_data:/elasticsearch:ro
+
+volumes:
+  postgres_data:
+    name: myapp_postgres_data
+  
+  redis_data: {}
+    
+  es_data: {}
+    
+  shared_backup: {} 
