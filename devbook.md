@@ -65,11 +65,11 @@ project_volumes_20240112_123456.tar.gz
 - ✅ Gestion des erreurs
 - ✅ Documentation des commandes
 - ✅ Tests unitaires de base
+- ✅ Tests d'intégration pour les commandes `list` et `backup`
 
 ### 4.2 En cours
 
 - ⏳ Commande `restore`
-- ⏳ Tests d'intégration
 - ⏳ Documentation utilisateur
 
 ### 4.3 Corrections récentes
@@ -77,6 +77,7 @@ project_volumes_20240112_123456.tar.gz
 - ✅ Correction de l'extension des archives (.tar.gz au lieu de .targz)
 - ✅ Déduplication des volumes dans les métadonnées
 - ✅ Mise à jour du .gitignore
+- ✅ Ajout des tests d'intégration avec environnement Docker isolé
 
 ## 5. Utilisation
 
