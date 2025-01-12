@@ -1,11 +1,11 @@
-"""Command line interface for Docker Volume Tools."""
+"""Command line interface for docker-volume-tools."""
 
 import os
 import click
 from tabulate import tabulate
-from .compose import parse_compose_file, VolumeInfo
-from .backup import create_backup, BackupError
-from .restore import restore_backup, validate_backup
+from docker_volume_tools.compose import parse_compose_file, VolumeInfo
+from docker_volume_tools.backup import create_backup, BackupError
+from docker_volume_tools.restore import restore_backup, validate_backup
 
 @click.group()
 def cli():
