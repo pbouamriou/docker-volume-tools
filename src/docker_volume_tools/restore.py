@@ -4,6 +4,7 @@ import os
 import json
 import tarfile
 import tempfile
+from typing import List, Optional
 from pathlib import Path
 import docker
 
@@ -137,7 +138,7 @@ def restore_volume(backup_dir: Path, volume_metadata: dict, force: bool = False)
     
     print(f"Volume {volume_name} restored successfully")
 
-def restore_backup(backup_path: str, volumes: list[str] = None, force: bool = False) -> None:
+def restore_backup(backup_path: str, volumes: Optional[List[str]] = None, force: bool = False) -> None:
     """
     Restore volumes from a backup archive.
     

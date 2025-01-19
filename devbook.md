@@ -117,3 +117,77 @@ dvt backup docker-compose.yml --no-compress
 - ✅ Noms de fichiers en anglais
 - ✅ Documentation utilisateur en français (devbook.md)
 - ✅ Fichiers de configuration en anglais
+
+## 7. Création de l'exécutable autonome
+
+### 7.1 Prérequis
+
+- ✅ PyInstaller installé (`pip install pyinstaller`)
+- ✅ Script de build (`build.py`)
+- ✅ Dépendances dans `requirements.txt`
+
+### 7.2 Processus de build
+
+```bash
+# Installation des dépendances
+pip install -r requirements.txt
+
+# Installation en mode développement
+pip install -e .
+
+# Construction de l'exécutable
+python build.py
+```
+
+### 7.3 Structure de l'exécutable
+
+- Exécutable unique (`dist/dvt`)
+- Inclut toutes les dépendances
+- Pas besoin de Python installé sur la machine cible
+- Compatible avec les systèmes Unix/Linux et macOS
+
+### 7.4 Utilisation de l'exécutable
+
+```bash
+# Lister les volumes
+./dvt list docker-compose.yml
+
+# Sauvegarder les volumes
+./dvt backup docker-compose.yml
+
+# Restaurer les volumes
+./dvt restore backup.tar.gz
+```
+
+### 7.5 Compatibilité
+
+- Compatible avec Python 3.7 et versions ultérieures
+- Testé sur :
+  - macOS (Python 3.13)
+  - Debian 10 (Python 3.7)
+- Dépendances minimales :
+  - click >= 8.0.0
+  - docker >= 6.0.0
+  - PyYAML >= 6.0
+  - tabulate >= 0.8.0
+
+### 7.6 Notes d'installation sur Debian 10
+
+```bash
+# Installation des prérequis système
+apt-get update
+apt-get install -y python3-venv
+
+# Création d'un environnement virtuel
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Installation des dépendances
+pip install -r requirements.txt
+
+# Installation en mode développement
+pip install -e .
+
+# Construction de l'exécutable
+python build.py
+```
