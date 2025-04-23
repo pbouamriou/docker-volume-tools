@@ -25,7 +25,8 @@ def cli():
               help='Enable/disable backup compression (default: enabled)')
 @click.option('--volumes', '-v', multiple=True,
               help='Specific volumes to backup (default: all volumes)')
-def backup(compose_file, output_dir, compress, volumes):
+@click.option('--ssh-target', '-s', help='SSH target for direct transfer (format: user@host:path)')
+def backup(compose_file, output_dir, compress, volumes, ssh_target):
     """Backup all volumes from a Docker Compose project.
     
     This command creates backups of all volumes defined in your Docker Compose file:
@@ -33,13 +34,14 @@ def backup(compose_file, output_dir, compress, volumes):
     - Creates consistent backups of each volume
     - Maintains service associations
     - Includes volume metadata and configurations
-    - Supports incremental backups (coming soon)
+    - Supports direct SSH transfer with --ssh-target option
     
     Examples:
         dvt backup docker-compose.yml
         dvt backup docker-compose.yml --output-dir /backups
         dvt backup docker-compose.yml --no-compress
         dvt backup docker-compose.yml -v postgres_data -v redis_data
+        dvt backup docker-compose.yml -s user@remote:/path/to/backups
     
     Args:
         compose_file: Path to your docker-compose.yml file
@@ -47,10 +49,14 @@ def backup(compose_file, output_dir, compress, volumes):
     try:
         # Convert relative paths to absolute
         compose_file = os.path.abspath(compose_file)
-        output_dir = os.path.abspath(output_dir)
+        if not ssh_target:
+            output_dir = os.path.abspath(output_dir)
         
         click.echo(f"Starting backup of volumes from {compose_file}")
-        click.echo(f"Output directory: {output_dir}")
+        if ssh_target:
+            click.echo(f"Target: {ssh_target} (direct SSH transfer)")
+        else:
+            click.echo(f"Output directory: {output_dir}")
         
         # List volumes that will be backed up
         volumes_list = parse_compose_file(compose_file)
@@ -79,12 +85,17 @@ def backup(compose_file, output_dir, compress, volumes):
             compose_file=compose_file,
             output_dir=output_dir,
             compress=compress,
-            volumes_to_backup=volumes if volumes else None
+            volumes_to_backup=volumes if volumes else None,
+            ssh_target=ssh_target
         )
         
-        click.echo(f"\nBackup completed successfully!")
-        click.echo(f"Backup archive: {backup_file}")
-        
+        if ssh_target:
+            click.echo(f"\nBackup completed successfully!")
+            click.echo(f"Backup transferred to: {ssh_target}")
+        else:
+            click.echo(f"\nBackup completed successfully!")
+            click.echo(f"Backup archive: {backup_file}")
+            
     except BackupError as e:
         click.echo(f"Backup error: {str(e)}", err=True)
         raise click.Abort()

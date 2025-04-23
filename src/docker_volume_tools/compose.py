@@ -71,9 +71,11 @@ def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
                     # Determine if it's a named volume or bind mount
                     if source in named_volumes:
                         volume_type = 'named'
-                        is_external = bool(named_volumes[source].get('external', False))
+                        # Handle case where volume has no configuration (value is None)
+                        volume_config = named_volumes[source] or {}
+                        is_external = bool(volume_config.get('external', False))
                         # Use explicit name if provided, otherwise use project_name prefix
-                        compose_name = named_volumes[source].get('name', f"{project_name}_{source}")
+                        compose_name = volume_config.get('name', f"{project_name}_{source}")
                     else:
                         volume_type = 'bind'
                         is_external = False
@@ -96,9 +98,11 @@ def parse_compose_file(compose_path: str) -> List[VolumeInfo]:
                 volume_type = volume.get('type', 'volume')
                 
                 if volume_type == 'volume':
-                    is_external = bool(named_volumes.get(source, {}).get('external', False))
+                    # Handle case where volume has no configuration (value is None)
+                    volume_config = named_volumes.get(source) or {}
+                    is_external = bool(volume_config.get('external', False))
                     # Use explicit name if provided, otherwise use project_name prefix
-                    compose_name = named_volumes.get(source, {}).get('name', f"{project_name}_{source}")
+                    compose_name = volume_config.get('name', f"{project_name}_{source}")
                     volumes.append(VolumeInfo(
                         name=source,
                         service=service_name,
