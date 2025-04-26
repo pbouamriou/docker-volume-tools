@@ -48,14 +48,19 @@ def validate_backup(backup_path: str) -> dict:
             if "volumes" not in metadata:
                 raise ValueError("Invalid metadata: missing volumes section")
                 
-            # Validate volume archives exist
+            # Vérifier que le répertoire volumes existe
+            volumes_dir = backup_dir / "volumes"
+            if not volumes_dir.exists() or not volumes_dir.is_dir():
+                raise ValueError("Volumes directory not found in backup")
+                
+            # Vérifier que tous les volumes référencés dans le metadata existent
             for volume in metadata["volumes"]:
-                if "name" not in volume or "archive" not in volume:
-                    raise ValueError("Invalid volume metadata")
+                if "name" not in volume:
+                    raise ValueError("Invalid volume metadata: missing name")
                     
-                archive_path = backup_dir / volume["archive"]
-                if not archive_path.exists():
-                    raise ValueError(f"Volume archive missing: {volume['archive']}")
+                volume_dir = volumes_dir / volume["name"]
+                if not volume_dir.exists() or not volume_dir.is_dir():
+                    raise ValueError(f"Volume directory not found: {volume['name']}")
                     
             return metadata
     except (tarfile.TarError, json.JSONDecodeError) as e:
@@ -75,11 +80,11 @@ def restore_volume(backup_dir: Path, volume_metadata: dict, force: bool = False)
     """
     client = docker.from_env()
     volume_name = volume_metadata["name"]
-    archive_path = backup_dir / volume_metadata["archive"]
+    volume_dir = backup_dir / "volumes" / volume_name
     
     print(f"\nRestoring volume {volume_name}...")
-    print(f"Archive path: {archive_path}")
-    print(f"Archive exists: {archive_path.exists()}")
+    print(f"Volume directory: {volume_dir}")
+    print(f"Directory exists: {volume_dir.exists()}")
     
     # Check if volume exists
     try:
@@ -107,23 +112,15 @@ def restore_volume(backup_dir: Path, volume_metadata: dict, force: bool = False)
         )
         
         try:
-            # Copy archive to container
-            print(f"Copying archive to container: {container.id}")
-            cp_cmd = f"docker cp {archive_path} {container.id}:/volume.tar.gz"
+            # Copier le contenu du répertoire du volume vers le conteneur
+            print(f"Copying volume data to container: {container.id}")
+            cp_cmd = f"docker cp {volume_dir}/. {container.id}:/volume/"
             print(f"Running: {cp_cmd}")
             cp_result = os.system(cp_cmd)
             print(f"Copy result: {cp_result}")
             
-            # Extract archive in container
-            print("Extracting archive in container")
-            exec_result = container.exec_run(
-                "sh -c 'cd /volume && tar xzf /volume.tar.gz --strip-components=1'"
-            )
-            print(f"Extract result: {exec_result.exit_code}")
-            print(f"Extract output: {exec_result.output.decode()}")
-            
-            if exec_result.exit_code != 0:
-                raise ValueError(f"Failed to extract volume data: {exec_result.output.decode()}")
+            if cp_result != 0:
+                raise ValueError(f"Failed to copy volume data: {cp_result}")
                 
         finally:
             print("Cleaning up container")
