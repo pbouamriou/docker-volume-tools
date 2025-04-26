@@ -152,7 +152,7 @@ def create_backup(
                 # Construire la commande tar pour créer une archive avec tous les volumes
                 print("Starting backup transfer...")
                 
-                # Commencer par créer un répertoire temporaire pour le metadata
+                # Créer un répertoire temporaire pour organiser les volumes
                 result = container.exec_run("mkdir -p /tmp_backup")
                 if result.exit_code != 0:
                     raise BackupError("Failed to create temporary directory")
@@ -162,14 +162,21 @@ def create_backup(
                 if result.exit_code != 0:
                     raise BackupError("Failed to copy metadata")
                 
-                # Construire la commande tar avec tous les volumes
-                tar_parts = ["cd /tmp_backup && tar cf - metadata.json"]
+                # Créer des liens symboliques vers les volumes dans le répertoire temporaire
+                result = container.exec_run("mkdir -p /tmp_backup/volumes")
+                if result.exit_code != 0:
+                    raise BackupError("Failed to create volumes directory")
+                
+                # Créer des liens symboliques vers chaque volume
                 for v in named_volumes:
                     print(f"Adding volume {v.name} to backup...")
-                    tar_parts.append(f"cd /volumes/{v.name} && tar cf - .")
+                    result = container.exec_run(f"ln -s /volumes/{v.name} /tmp_backup/volumes/{v.name}")
+                    if result.exit_code != 0:
+                        raise BackupError(f"Failed to create symlink for volume {v.name}")
                 
-                # Combiner les commandes tar avec des pipes
-                tar_cmd = " && ".join(tar_parts)
+                # Créer l'archive tar avec tous les fichiers
+                # Utiliser -h pour suivre les liens symboliques
+                tar_cmd = "cd /tmp_backup && tar -hcf - ."
                 if compress:
                     tar_cmd = f"({tar_cmd}) | gzip"
                 
