@@ -79,7 +79,8 @@ def create_backup(
                 'name': v.compose_name,
                 'service': v.service,
                 'target': v.target,
-                'is_external': v.is_external
+                'is_external': v.is_external,
+                'archive_path': v.name
             }
             for v in named_volumes
         ]
