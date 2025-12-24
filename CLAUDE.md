@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Docker Volume Tools (`dvtools`) is a Go CLI tool for backing up and restoring Docker volumes associated with Docker Compose projects. It creates structured backups with metadata and supports both local and SSH-based remote transfers.
 
-**Critical Fix**: This Go rewrite fixes a major bug in the Python version where symbolic links were incorrectly handled (dereferenced during backup but attempted recreation during restore).
+**Key Features**:
+- Streaming backup/restore without local disk space requirements
+- Direct SSH transfer for remote backups
+- Single-pass restore of all volumes
+- Correct symbolic link handling
 
 ## Development Commands
 
@@ -24,6 +28,9 @@ go mod tidy
 ```bash
 # Build binary
 make build
+
+# Build static binary (compatible with Debian 10+)
+make build-static
 
 # Build for all platforms
 make build-all
@@ -55,10 +62,12 @@ make lint
 # List volumes in a compose project
 ./dvtools list docker-compose.yml
 
-# Create backup
+# Create backup (local)
 ./dvtools backup docker-compose.yml
 ./dvtools backup docker-compose.yml --output-dir /backups
 ./dvtools backup docker-compose.yml -v postgres_data -v redis_data
+
+# Create backup (SSH streaming - no local disk space needed)
 ./dvtools backup docker-compose.yml --ssh-target user@remote:/path/to/backups
 
 # Restore from backup
@@ -73,8 +82,8 @@ make lint
 
 - **[cmd/dvtools/main.go](cmd/dvtools/main.go)**: Cobra-based CLI interface with three main commands (`list`, `backup`, `restore`)
 - **[internal/compose/parser.go](internal/compose/parser.go)**: Docker Compose YAML parser that extracts volume information
-- **[internal/backup/backup.go](internal/backup/backup.go)**: Backup engine that creates tar archives with **proper symlink preservation**
-- **[internal/restore/restore.go](internal/restore/restore.go)**: Restore engine that recreates volumes with **correct symlink handling**
+- **[internal/backup/backup.go](internal/backup/backup.go)**: Backup engine with streaming SSH support
+- **[internal/restore/restore.go](internal/restore/restore.go)**: Restore engine with single-pass multi-volume restoration
 - **[internal/docker/client.go](internal/docker/client.go)**: Docker SDK client wrapper
 - **[pkg/models/volume.go](pkg/models/volume.go)**: Data structures (VolumeInfo, BackupMetadata, etc.)
 
@@ -86,73 +95,48 @@ make lint
    - Detects external volumes via `ComposeName` attribute
 
 2. **Backup Process**: `CreateBackup()` orchestrates volume backups
-   - Uses temporary Alpine containers to read volume data via `docker cp`
-   - Creates tar archives with `archive/tar` package
-   - **CRITICAL**: Preserves symlinks using `tar.TypeSymlink` (NO dereferencing with `-h`)
-   - Generates metadata.json with volume configurations
-   - Supports two modes:
-     - **Local**: Creates archive in specified output directory
-     - **SSH**: Creates temp archive and transfers via SCP to save disk space
-   - Final archive structure: `project_volumes_timestamp.tar.gz` containing `volumes/` directory and `metadata.json`
+   - **Local mode**: Creates archive in specified output directory
+   - **SSH mode**: Streams directly to remote host without local temp files
+     - Mounts all volumes in a single Alpine container
+     - Creates tar archive and pipes through SSH
+     - No local disk space required (except for small metadata file)
 
 3. **Restore Process**: `RestoreBackup()` recreates volumes from backups
    - Validates backup integrity via `ValidateBackup()`
-   - Extracts metadata and volume data from archive
-   - Creates new Docker volumes and populates them using temporary containers
-   - **CRITICAL**: Correctly handles symlinks by detecting `tar.TypeSymlink` and recreating with `os.Symlink()`
-   - Handles volume name prefixing and `ArchivePath` mapping
+   - **Single-pass restoration**: All volumes restored in one archive read
+     - Mounts all target volumes in one container
+     - Uses symlinks to redirect extraction to correct volumes
+     - Streams archive directly into container
 
 ### Critical Implementation Details
+
+**SSH Streaming Backup** ([backup.go:306-472](internal/backup/backup.go#L306-L472)):
+```go
+// Mount all volumes in container
+// Create symlinks: /tmp_backup/volumes/<name> -> /volumes/<name>
+// Stream: tar -hcf - metadata.json volumes | gzip | ssh user@host 'cat > file'
+```
+
+**Single-Pass Restore** ([restore.go:148-216](internal/restore/restore.go#L148-L216)):
+```go
+// Mount all volumes at /restore_volumes/<archive_path>
+// Create symlinks: /volumes/<name> -> /restore_volumes/<name>
+// Extract: gunzip -c | tar -xf - -C /
+// Files go to /volumes/<name> which redirects to mounted volumes
+```
 
 **Volume Name Resolution**: Docker Compose prefixes volume names with the project name. The code tracks both the compose file name (e.g., `postgres_data`) and the actual Docker volume name (e.g., `testdata_postgres_data`) using `VolumeInfo.ComposeName`.
 
 **Backup Archive Structure**:
 ```
 project_volumes_20240112_123456.tar.gz
-├── metadata.json
+├── metadata.json          # FIRST in archive for fast validation
 └── volumes/
-    ├── postgres_data/  (uses compose file volume name, not Docker volume name)
-    │   ├── data/
-    │   └── config -> ../data/config  (symlink preserved!)
+    ├── postgres_data/
+    │   └── [volume contents]
     └── redis_data/
-        └── dump.rdb
+        └── [volume contents]
 ```
-
-**Symbolic Link Fix**:
-
-**Backup** ([backup.go:195-241](internal/backup/backup.go#L195-L241)):
-```go
-// In createTarArchive()
-if info.Mode()&os.ModeSymlink != 0 {
-    linkTarget, _ := os.Readlink(path)
-    header := &tar.Header{
-        Typeflag: tar.TypeSymlink,
-        Linkname: linkTarget,  // Store the link target
-        Size:     0,
-    }
-    tarWriter.WriteHeader(header)
-    // No file content written for symlinks
-}
-```
-
-**Restore** ([restore.go:245-266](internal/restore/restore.go#L245-L266)):
-```go
-// In extractVolumeFromBackup()
-case tar.TypeSymlink:
-    // Recreate the symlink
-    if err := os.Symlink(header.Linkname, targetPath); err != nil {
-        // Handle errors
-    }
-```
-
-**SSH Transfer Implementation** ([backup.go:306-412](internal/backup/backup.go#L306-L412)):
-- Creates backup in temp directory
-- Uses `ssh` command to create remote directory
-- Uses `scp` command to transfer archive
-- Cleans up temp files after transfer
-- This avoids needing local disk space for the backup
-
-**Container-Based Operations**: All volume read/write operations use temporary Alpine containers with volume mounts to ensure cross-platform compatibility and avoid permission issues.
 
 ## Code Conventions
 
@@ -172,12 +156,7 @@ case tar.TypeSymlink:
 
 Unit tests in [internal/compose/parser_test.go](internal/compose/parser_test.go) cover compose file parsing.
 
-Integration tests will cover full backup/restore workflows:
-- Creating real Docker containers (PostgreSQL, Redis)
-- Testing volume population, backup creation, and restoration
-- Validating metadata structure and data integrity
-- **Testing symlink preservation** (critical!)
-- Cleaning up Docker resources (containers, volumes, networks) with defer
+Integration tests in [test/integration/](test/integration/) cover full backup/restore workflows.
 
 Tests require Docker daemon to be running and accessible.
 
@@ -187,8 +166,7 @@ Key Go packages:
 - `github.com/spf13/cobra` - CLI framework
 - `github.com/docker/docker/client` - Docker SDK
 - `gopkg.in/yaml.v3` - YAML parser
-- `archive/tar` - Tar archive handling (symlink support)
+- `archive/tar` - Tar archive handling
 - `compress/gzip` - Compression
-- `golang.org/x/crypto/ssh` - SSH support (for transfers)
 
 All dependencies managed via `go.mod`.
