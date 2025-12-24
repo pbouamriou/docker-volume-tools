@@ -47,3 +47,7 @@ examples/**/data/
 examples/**/*.tar
 examples/**/*.tar.gz
 examples/**/docker-compose_volumes_*/ 
+
+# Generated files
+dvtools
+dvtools.exe

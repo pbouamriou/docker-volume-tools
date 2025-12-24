@@ -48,26 +48,81 @@ def validate_backup(backup_path: str) -> dict:
                 raise ValueError("Invalid metadata: missing volumes section")
             
             # Vérifier la présence de fichiers dans le dossier volumes
-            # Au lieu de chercher un dossier volumes spécifique, on vérifie qu'il y a des fichiers
-            # qui commencent par volumes/ ou ./volumes/
             volume_files = [m for m in tar.getmembers() 
                            if m.name.startswith('volumes/') or m.name.startswith('./volumes/')]
             if not volume_files:
                 raise ValueError("No volume files found in backup")
+            
+            # Correction : extraire correctement les noms de volumes
+            volume_dirs = set()
+            for member in tar.getmembers():
+                name = member.name
+                if name.startswith('volumes/'):
+                    parts = name.split('/')
+                    if len(parts) > 1:
+                        volume_dirs.add(parts[1])
+                elif name.startswith('./volumes/'):
+                    parts = name.split('/')
+                    if len(parts) > 2:
+                        volume_dirs.add(parts[2])
             
             # Vérifier que tous les volumes référencés dans le metadata existent
             for volume in metadata["volumes"]:
                 if "name" not in volume:
                     raise ValueError("Invalid volume metadata: missing name")
                 
-                # Prendre en compte les chemins avec ou sans './' au début
-                volume_path = f"volumes/{volume['name']}/"
-                volume_path_with_dot = f"./volumes/{volume['name']}/"
-                volume_members = [m for m in tar.getmembers() 
-                                 if m.name.startswith(volume_path) or m.name.startswith(volume_path_with_dot)]
+                archive_path = volume.get("archive_path", volume["name"])
+                print(f"\nValidating volume: {volume['name']}")
+                print(f"Looking for archive path: {archive_path}")
+                
+                volume_paths = [
+                    f"volumes/{archive_path}/",
+                    f"./volumes/{archive_path}/",
+                    f"volumes/{volume['name']}/",
+                    f"./volumes/{volume['name']}/"
+                ]
+                
+                volume_members = []
+                found_path = None
+                for path in volume_paths:
+                    members = [m for m in tar.getmembers() if m.name.startswith(path)]
+                    if members:
+                        volume_members.extend(members)
+                        found_path = path
+                        print(f"✅ Found volume directory with path: {path}")
+                        break
+                
                 if not volume_members:
-                    raise ValueError(f"Volume directory not found: {volume['name']}")
-            
+                    print(f"❌ Volume directory not found with exact paths: {', '.join(volume_paths)}")
+                    print(f"🔍 Trying alternative paths...")
+                    possible_prefixes = [
+                        f"volumes/{volume['name'].replace('-', '_')}/",
+                        f"./volumes/{volume['name'].replace('-', '_')}/",
+                        f"volumes/{volume['name'].lower()}/",
+                        f"./volumes/{volume['name'].lower()}/",
+                        f"volumes/{volume['name'].replace('-', '').replace('_', '')}/",
+                        f"./volumes/{volume['name'].replace('-', '').replace('_', '')}/"
+                    ]
+                    for member in tar.getmembers():
+                        for prefix in possible_prefixes:
+                            if member.name.startswith(prefix):
+                                found_path = prefix
+                                print(f"✅ Found volume directory with prefix: {prefix}")
+                                break
+                        if found_path:
+                            break
+                    if not found_path:
+                        print(f"❌ No matching directory found with standard variations")
+                        print(f"🔍 Searching for similar directories in archive...")
+                        print(f"📁 Available volume directories in archive: {', '.join(sorted(volume_dirs))}")
+                        for dir_name in volume_dirs:
+                            if dir_name == archive_path:
+                                found_path = f"volumes/{dir_name}/"
+                                print(f"✅ Found exact archive_path directory: {found_path}")
+                                break
+                        if not found_path:
+                            print(f"❌ No matching directory found in archive")
+                            raise ValueError(f"Volume directory not found: {volume['name']}")
             return metadata
     except (tarfile.TarError, json.JSONDecodeError) as e:
         raise ValueError(f"Invalid backup format: {str(e)}")
@@ -127,93 +182,96 @@ def restore_volume(backup_path: str, volume_metadata: dict, force: bool = False)
                     volume_prefix = f"volumes/{archive_path}/"
                     volume_prefix_with_dot = f"./volumes/{archive_path}/"
                     
+                    print(f"Looking for volume with prefix: {volume_prefix} or {volume_prefix_with_dot}")
+                    
                     # Vérifier si le préfixe existe dans l'archive
                     volume_members = [m for m in tar.getmembers() 
                                      if m.name.startswith(volume_prefix) or m.name.startswith(volume_prefix_with_dot)]
                     
                     if not volume_members:
-                        # Si le chemin exact n'est pas trouvé, essayer les variations comme avant
-                        print(f"Volume directory not found with exact path, trying variations...")
-                        possible_prefixes = [
-                            f"volumes/{volume_name}/",
-                            f"./volumes/{volume_name}/",
-                            # Essayer avec des variations du nom (remplacer les caractères spéciaux)
-                            f"volumes/{volume_name.replace('-', '_')}/",
-                            f"./volumes/{volume_name.replace('-', '_')}/",
-                            # Essayer avec le nom en minuscules
-                            f"volumes/{volume_name.lower()}/",
-                            f"./volumes/{volume_name.lower()}/",
-                            # Essayer avec le nom sans caractères spéciaux
-                            f"volumes/{volume_name.replace('-', '').replace('_', '')}/",
-                            f"./volumes/{volume_name.replace('-', '').replace('_', '')}/"
-                        ]
-                        
-                        # Parcourir tous les membres de l'archive pour trouver le préfixe
+                        print(f"❌ Volume directory not found with exact path: {volume_prefix} or {volume_prefix_with_dot}")
+                        print(f"🔍 Searching for exact archive_path in archive...")
+                        # Recherche stricte dans la liste des dossiers de volumes
+                        volume_dirs = set()
                         for member in tar.getmembers():
-                            for prefix in possible_prefixes:
-                                if member.name.startswith(prefix):
-                                    volume_prefix = prefix
-                                    print(f"Found volume directory with prefix: {volume_prefix}")
-                                    break
-                            if volume_prefix:
-                                break
-                        
-                        if not volume_prefix:
-                            # Si aucun préfixe n'est trouvé, essayer de trouver un dossier qui pourrait correspondre
-                            print(f"Volume directory not found with exact name, searching for similar directories...")
-                            all_members = tar.getmembers()
-                            volume_dirs = set()
-                            
-                            # Collecter tous les dossiers de volumes
-                            for member in all_members:
-                                if member.name.startswith('volumes/') or member.name.startswith('./volumes/'):
-                                    parts = member.name.split('/')
-                                    if len(parts) >= 3:  # volumes/nom_du_volume/...
-                                        volume_dirs.add(parts[1])
-                            
-                            print(f"Available volume directories: {', '.join(volume_dirs)}")
-                            
-                            # Essayer de trouver un dossier qui pourrait correspondre au volume
-                            for dir_name in volume_dirs:
-                                # Vérifier si le nom du dossier est similaire au nom du volume
-                                if (dir_name.lower() == volume_name.lower() or
-                                    dir_name.replace('-', '_') == volume_name.replace('-', '_') or
-                                    dir_name.replace('-', '').replace('_', '') == volume_name.replace('-', '').replace('_', '')):
-                                    volume_prefix = f"volumes/{dir_name}/"
-                                    print(f"Found similar volume directory: {volume_prefix}")
-                                    break
-                            
-                            if not volume_prefix:
-                                raise ValueError(f"Volume directory not found: {volume_name}")
-                    
+                            name = member.name
+                            if name.startswith('volumes/'):
+                                parts = name.split('/')
+                                if len(parts) > 1:
+                                    volume_dirs.add(parts[1])
+                            elif name.startswith('./volumes/'):
+                                parts = name.split('/')
+                                if len(parts) > 2:
+                                    volume_dirs.add(parts[2])
+                        print(f"📁 Available volume directories in archive: {', '.join(sorted(volume_dirs))}")
+                        if archive_path in volume_dirs:
+                            volume_prefix = f"volumes/{archive_path}/"
+                            print(f"✅ Found exact archive_path directory: {volume_prefix}")
+                        else:
+                            print(f"❌ No matching directory found in archive")
+                            raise ValueError(f"Volume directory not found: {volume_name}")
                     # Extraire les fichiers du volume
+                    print(f"\nExtracting files with prefix: {volume_prefix}")
+                    # Première passe : extraire fichiers et dossiers (pas les symlinks)
                     for member in tar.getmembers():
-                        if member.name.startswith(volume_prefix):
-                            # Ajuster le chemin pour l'extraction
-                            member.name = member.name[len(volume_prefix):]
-                            tar.extract(member, temp_volume_dir)
-                
-                # Copier le contenu du répertoire temporaire vers le conteneur
-                print(f"Copying volume data to container: {container.id}")
-                cp_cmd = f"docker cp {temp_volume_dir}/. {container.id}:/volume/"
-                print(f"Running: {cp_cmd}")
-                cp_result = os.system(cp_cmd)
-                print(f"Copy result: {cp_result}")
-                
-                if cp_result != 0:
-                    raise ValueError(f"Failed to copy volume data: {cp_result}")
-                
+                        for prefix in [volume_prefix, volume_prefix_with_dot]:
+                            if member.name.startswith(prefix):
+                                rel_name = member.name[len(prefix):]
+                                if not rel_name:
+                                    break
+                                if member.issym():
+                                    # On traitera les symlinks dans une seconde passe
+                                    break
+                                member.name = rel_name
+                                print(f"Extracting: {rel_name}")
+                                tar.extract(member, temp_volume_dir)
+                                break
+                    # Deuxième passe : créer les symlinks
+                    for member in tar.getmembers():
+                        for prefix in [volume_prefix, volume_prefix_with_dot]:
+                            if member.name.startswith(prefix):
+                                rel_name = member.name[len(prefix):]
+                                if not rel_name:
+                                    break
+                                if member.issym():
+                                    target_path = os.path.join(temp_volume_dir, rel_name)
+                                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                                    print(f"Creating symlink: {rel_name} -> {member.linkname}")
+                                    try:
+                                        os.symlink(member.linkname, target_path)
+                                    except FileExistsError:
+                                        pass
+                                break
+                    # Affichage intelligent du contenu extrait
+                    print(f"\n[DEBUG] Temporary extracted directory: {temp_volume_dir}")
+                    file_count = 0
+                    max_files = 10
+                    print("[DEBUG] First files extracted:")
+                    for root, dirs, files in os.walk(temp_volume_dir):
+                        for name in files:
+                            rel_path = os.path.relpath(os.path.join(root, name), temp_volume_dir)
+                            if file_count < max_files:
+                                print(f"  - {rel_path}")
+                            file_count += 1
+                    if file_count > max_files:
+                        print(f"  ... and {file_count - max_files} more files ...")
+                    print(f"[DEBUG] Total files extracted: {file_count}")
+                    # Copier le contenu du répertoire temporaire vers le conteneur
+                    print(f"\nCopying volume data to container: {container.id}")
+                    cp_cmd = f"docker cp {temp_volume_dir}/. {container.id}:/volume/"
+                    print(f"Running: {cp_cmd}")
+                    cp_result = os.system(cp_cmd)
+                    print(f"Copy result: {cp_result}")
+                    if cp_result != 0:
+                        raise ValueError(f"Failed to copy volume data: {cp_result}")
         finally:
             print("Cleaning up container")
             container.stop()
             container.remove()
-            
     except Exception as e:
-        # Cleanup on error
         print(f"Error occurred, cleaning up volume: {str(e)}")
         volume.remove()
         raise ValueError(f"Failed to restore volume {volume_name}: {str(e)}")
-    
     print(f"Volume {volume_name} restored successfully")
 
 def restore_backup(backup_path: str, volumes: Optional[List[str]] = None, force: bool = False) -> None:

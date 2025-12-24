@@ -1,0 +1,19 @@
+services:
+  database:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: testpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7
+    volumes:
+      - type: volume
+        source: redis_data
+        target: /data
+
+volumes:
+  postgres_data:
+  redis_data:
